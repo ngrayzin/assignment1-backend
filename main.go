@@ -1,17 +1,31 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 
 	"database/sql"
 
+	"github.com/go-sql-driver/mysql"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
 )
 
-type Users struct {
+type Response struct {
+	Message string `json:"message"`
+}
+
+type User struct {
+	UserID          int    `json:"userID"`
+	Email           string `json:"email"`
+	Password        string `json:"password"`
+	AccountCreation string `json:"accountCreationDate"`
+	LastUpdated     string `json:"lastUpdated"`
+}
+
+type UserProfile struct {
 	profileId           int
 	ID                  int
 	FirstName           string
@@ -22,40 +36,96 @@ type Users struct {
 	DriverLicenseNumber sql.NullString
 }
 
+type Trips struct {
+	TripID             int
+	ownerUserID        int
+	pickupLoc          string
+	altPickupLoc       sql.NullString
+	startTravelTime    string
+	destinationAddress string
+	availableSeats     int
+	isActive           bool
+	createdAt          string
+	lastUpdated        string
+}
+
+type TripEnrollment struct {
+	EnrolmentID    int
+	TripID         int
+	PassengerID    int
+	EnrollmentTime string
+}
+
+var db *sql.DB
+
+var cfg = mysql.Config{
+	User:      "user",
+	Passwd:    "password",
+	Net:       "tcp",
+	Addr:      "localhost:3306",
+	DBName:    "carpooling_db",
+	ParseTime: true,
+}
+
 func main() {
-	db, err := sql.Open("mysql",
-		"mysql:password@tcp(127.0.0.1:3306)/carpooling_db")
-	// handle error
-	if err != nil {
-		panic(err.Error())
-	}
+	db, _ = sql.Open("mysql", cfg.FormatDSN())
 	defer db.Close()
 
-	GetData(db)
-
 	router := mux.NewRouter()
-	router.HandleFunc("/api/v1/", home)
+	router.HandleFunc("/api/v1/login", login).Methods(http.MethodPost, http.MethodGet)
 	fmt.Println("Listening at port 5000")
 	log.Fatal(http.ListenAndServe(":5000", router))
 }
 
-func home(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("hello")
-}
+func login(w http.ResponseWriter, r *http.Request) {
+	type LoginRequest struct {
+		Email string `json:"email"`
+		Pwd   string `json:"pwd"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	var loginRequest LoginRequest
+	err := decoder.Decode(&loginRequest)
+	if err != nil {
+		// Handle JSON decoding error
+	}
 
-func GetData(db *sql.DB) {
-	results, err := db.Query("SELECT * FROM UserProfiles")
+	email := loginRequest.Email
+	pwd := loginRequest.Pwd
+
+	if email == "" && pwd == "" {
+		fmt.Println("Invalid params")
+		return
+	}
+
+	fmt.Println("/api/v1/login")
+
+	results, err := db.Query("SELECT * FROM Users WHERE Email = ? AND Password = ?", email, pwd)
 	if err != nil {
 		panic(err.Error())
 	}
 	defer results.Close()
 
+	user := User{}
+	userFound := false
 	for results.Next() {
-		var u Users
-		err = results.Scan(&u.profileId, &u.ID, &u.FirstName, &u.LastName, &u.number, &u.IsCarOwner, &u.CarPlateNumber, &u.DriverLicenseNumber)
+		userFound = true
+		err = results.Scan(&user.UserID, &user.Email, &user.Password, &user.AccountCreation, &user.LastUpdated)
 		if err != nil {
 			panic(err.Error())
 		}
-		fmt.Printf("%d %d %s %s %s %t %s %s\n", u.profileId, u.ID, u.FirstName, u.LastName, u.number, u.IsCarOwner, u.CarPlateNumber, u.DriverLicenseNumber)
+	}
+
+	if userFound {
+		userJSON, err := json.Marshal(user)
+		if err != nil {
+			panic(err.Error())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Println("Logged in :D")
+		w.Write(userJSON)
+	} else {
+		fmt.Println("Invalid login credentials")
+		fmt.Fprintf(w, "Invalid login credentials")
 	}
 }
