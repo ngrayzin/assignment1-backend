@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"database/sql"
 
@@ -33,16 +34,16 @@ type User struct {
 }
 
 type Trips struct {
-	TripID             int
-	ownerUserID        int
-	pickupLoc          string
-	altPickupLoc       sql.NullString
-	startTravelTime    string
-	destinationAddress string
-	availableSeats     int
-	isActive           bool
-	createdAt          string
-	lastUpdated        string
+	TripID             int            `json:"tripID"`
+	OwnerUserID        int            `json:"ownerUserID"`
+	PickupLoc          string         `json:"pickupLoc"`
+	AltPickupLoc       sql.NullString `json:"altPickupLoc"`
+	StartTravelTime    string         `json:"startTravelTime"`
+	DestinationAddress string         `json:"destinationAddress"`
+	AvailableSeats     int            `json:"availableSeats"`
+	IsActive           bool           `json:"isActive"`
+	CreatedAt          string         `json:"createdAt"`
+	LastUpdated        string         `json:"lastUpdated"`
 }
 
 type TripEnrollment struct {
@@ -154,6 +155,8 @@ func signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fmt.Println("/api/v1/signup")
+
 	result, err := db.Exec("INSERT INTO Users (Email, Password, FirstName, LastName, MobileNumber) VALUES (?, ?, ?, ?, ?)",
 		user.Email, user.Pwd, user.FirstName, user.LastName, user.Number)
 	if err != nil {
@@ -170,12 +173,67 @@ func signup(w http.ResponseWriter, r *http.Request) {
 }
 
 func userProfile(w http.ResponseWriter, r *http.Request) {
-	querystringmap := r.URL.Query()
-	userId := querystringmap["userId"]
-	fmt.Println(userId)
+	params := mux.Vars(r)
+	if _, ok := params["id"]; !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "No ID")
+	}
+	id, _ := strconv.Atoi(params["id"])
 	switch r.Method {
 	case http.MethodPut:
+		var updateFields map[string]interface{}
+		decoder := json.NewDecoder(r.Body)
+		if err := decoder.Decode(&updateFields); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "Invalid request body")
+			return
+		}
+
+		fmt.Printf("/api/v1/userProfile/%d", id)
+
+		var setClauses []string
+		var values []interface{}
+
+		for key, value := range updateFields {
+			setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
+			values = append(values, value)
+		}
+
+		query := fmt.Sprintf(`
+			UPDATE Users
+			SET %s
+			WHERE UserID = ?;
+		`, strings.Join(setClauses, ", "))
+
+		values = append(values, id)
+		rows, err := db.Query(query, values...)
+		if err != nil {
+			panic(err.Error())
+		}
+		defer rows.Close()
+		fmt.Printf("User with id %d updated", id)
+		fmt.Fprintf(w, "User data updated successfully")
 	case http.MethodDelete:
+		results, err := db.Exec("DELETE FROM Users WHERE UserID = ? AND AccountCreationDate < DATE_SUB(NOW(),INTERVAL 1 YEAR);", id)
+		if err != nil {
+			panic(err.Error())
+		}
+
+		RowsEffected, err := results.RowsAffected()
+		if err != nil {
+			panic(err.Error())
+		}
+
+		if RowsEffected > 0 {
+			w.WriteHeader(http.StatusAccepted)
+			fmt.Printf("User with id %d deleted", id)
+			fmt.Fprintf(w, "deleted user with id %d", id)
+		} else {
+			w.WriteHeader(http.StatusConflict)
+			fmt.Println("Account cannot be deleted (1yr retention policy)")
+			fmt.Fprint(w, "Account cannot be deleted (1yr retention policy)")
+		}
+
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		fmt.Fprint(w, "Error")
@@ -184,11 +242,27 @@ func userProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func trips(w http.ResponseWriter, r *http.Request) {
-	querystringmap := r.URL.Query()
-	userId := querystringmap["userId"]
-	fmt.Println(userId)
+	params := mux.Vars(r)
+	if _, ok := params["id"]; !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "No ID")
+	}
+	id, _ := strconv.Atoi(params["id"])
+
+	fmt.Println(id)
 	switch r.Method {
 	case http.MethodGet:
+		results, err := db.Query("SELECT * FROM Trips;")
+		if err != nil {
+			panic(err.Error())
+		}
+		defer results.Close()
+		for results.Next() {
+			// err = results.Scan(&user.UserID, &user.Email, &user.Password, &user.FirstName, &user.LastName, &user.Number, &user.IsCarOwner, &user.DriverLicenseNumber, &user.CarPlateNumber, &user.AccountCreation, &user.LastUpdated)
+			// if err != nil {
+			// 	panic(err.Error())
+			// }
+		}
 	case http.MethodPut:
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
