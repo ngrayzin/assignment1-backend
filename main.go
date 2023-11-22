@@ -36,14 +36,14 @@ type User struct {
 type Trips struct {
 	TripID             int            `json:"tripID"`
 	OwnerUserID        int            `json:"ownerUserID"`
-	PickupLoc          string         `json:"pickupLoc"`
-	AltPickupLoc       sql.NullString `json:"altPickupLoc"`
+	PickupLocation     string         `json:"pickupLoc"`
+	AltPickupLocation  sql.NullString `json:"altPickupLoc"`
 	StartTravelTime    string         `json:"startTravelTime"`
 	DestinationAddress string         `json:"destinationAddress"`
 	AvailableSeats     int            `json:"availableSeats"`
 	IsActive           bool           `json:"isActive"`
 	CreatedAt          string         `json:"createdAt"`
-	LastUpdated        string         `json:"lastUpdated"`
+	LastUpdated        sql.NullString `json:"lastUpdated"`
 }
 
 type TripEnrollment struct {
@@ -73,7 +73,7 @@ func main() {
 	router.HandleFunc("/api/v1/signup", signup).Methods(http.MethodPost)
 	router.HandleFunc("/api/v1/userProfile/{id}", userProfile).Methods(http.MethodGet, http.MethodPut, http.MethodDelete)
 	router.HandleFunc("/api/v1/trips", trips).Methods(http.MethodGet)
-	router.HandleFunc("/api/v1/trips/{id}", trips).Methods(http.MethodPut)
+	router.HandleFunc("/api/v1/trips/{id}/{userid}", trips).Methods(http.MethodPut, http.MethodPost)
 	router.HandleFunc("/api/v1/myEnrolments/{id}", myEnrolments).Methods(http.MethodGet)
 	router.HandleFunc("/api/v1/publishTrip", publishTrip).Methods(http.MethodGet, http.MethodPut)
 	fmt.Println("Listening at port 5000")
@@ -179,7 +179,29 @@ func userProfile(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "No ID")
 	}
 	id, _ := strconv.Atoi(params["id"])
+
 	switch r.Method {
+	case http.MethodGet:
+		fmt.Printf("/api/v1/userProfile/%d\n", id)
+		results, err := db.Query("SELECT UserID, Email, FirstName, LastName, MobileNumber, DriverLicenseNumber, CarPlateNumber FROM Users WHERE UserID = ?;", id)
+		if err != nil {
+			panic(err.Error())
+		}
+		defer results.Close()
+		user := User{}
+		for results.Next() {
+			err = results.Scan(&user.UserID, &user.Email, &user.FirstName, &user.LastName, &user.Number, &user.DriverLicenseNumber, &user.CarPlateNumber)
+			if err != nil {
+				panic(err.Error())
+			}
+		}
+		userJSON, err := json.Marshal(user)
+		if err != nil {
+			panic(err.Error())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(userJSON)
 	case http.MethodPut:
 		var updateFields map[string]interface{}
 		decoder := json.NewDecoder(r.Body)
@@ -189,14 +211,25 @@ func userProfile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		fmt.Printf("/api/v1/userProfile/%d", id)
+		fmt.Printf("/api/v1/userProfile/%d\n", id)
 
 		var setClauses []string
 		var values []interface{}
 
 		for key, value := range updateFields {
-			setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
-			values = append(values, value)
+			if key == "IsCarOwner" {
+				setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
+				var boolValue bool
+				if value.(bool) {
+					boolValue = true
+				} else {
+					boolValue = false
+				}
+				values = append(values, boolValue)
+			} else {
+				setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
+				values = append(values, value)
+			}
 		}
 
 		query := fmt.Sprintf(`
@@ -211,8 +244,8 @@ func userProfile(w http.ResponseWriter, r *http.Request) {
 			panic(err.Error())
 		}
 		defer rows.Close()
-		fmt.Printf("User with id %d updated", id)
-		fmt.Fprintf(w, "User data updated successfully")
+		fmt.Printf("User with id %d updated\n", id)
+		fmt.Fprintf(w, "User data updated successfully\n")
 	case http.MethodDelete:
 		results, err := db.Exec("DELETE FROM Users WHERE UserID = ? AND AccountCreationDate < DATE_SUB(NOW(),INTERVAL 1 YEAR);", id)
 		if err != nil {
@@ -226,12 +259,12 @@ func userProfile(w http.ResponseWriter, r *http.Request) {
 
 		if RowsEffected > 0 {
 			w.WriteHeader(http.StatusAccepted)
-			fmt.Printf("User with id %d deleted", id)
-			fmt.Fprintf(w, "deleted user with id %d", id)
+			fmt.Printf("User with id %d deleted\n", id)
+			fmt.Fprintf(w, "deleted user with id %d\n", id)
 		} else {
 			w.WriteHeader(http.StatusConflict)
 			fmt.Println("Account cannot be deleted (1yr retention policy)")
-			fmt.Fprint(w, "Account cannot be deleted (1yr retention policy)")
+			fmt.Fprintln(w, "Account cannot be deleted (1yr retention policy)")
 		}
 
 	default:
@@ -242,28 +275,89 @@ func userProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func trips(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	if _, ok := params["id"]; !ok {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "No ID")
-	}
-	id, _ := strconv.Atoi(params["id"])
-
-	fmt.Println(id)
 	switch r.Method {
 	case http.MethodGet:
+		fmt.Println("/api/v1/trips")
 		results, err := db.Query("SELECT * FROM Trips;")
 		if err != nil {
 			panic(err.Error())
 		}
 		defer results.Close()
+
+		var trips []Trips
 		for results.Next() {
-			// err = results.Scan(&user.UserID, &user.Email, &user.Password, &user.FirstName, &user.LastName, &user.Number, &user.IsCarOwner, &user.DriverLicenseNumber, &user.CarPlateNumber, &user.AccountCreation, &user.LastUpdated)
-			// if err != nil {
-			// 	panic(err.Error())
-			// }
+			var trip Trips
+			err = results.Scan(&trip.TripID, &trip.OwnerUserID, &trip.PickupLocation, &trip.AltPickupLocation, &trip.StartTravelTime, &trip.DestinationAddress, &trip.AvailableSeats, &trip.IsActive, &trip.CreatedAt, &trip.LastUpdated)
+			if err != nil {
+				panic(err.Error())
+			}
+			trips = append(trips, trip)
 		}
+		tripsJSON, err := json.Marshal(trips)
+		if err != nil {
+			panic(err.Error())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(tripsJSON)
 	case http.MethodPut:
+		params := mux.Vars(r)
+		if _, ok := params["id"]; !ok {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "No ID")
+			return
+		}
+		if _, ok := params["userid"]; !ok {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "No ID")
+			return
+		}
+		id, _ := strconv.Atoi(params["id"])
+		userid, _ := strconv.Atoi(params["userid"])
+		fmt.Println(id, userid)
+		var updateFields map[string]interface{}
+		decoder := json.NewDecoder(r.Body)
+		if err := decoder.Decode(&updateFields); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "Invalid request body")
+			return
+		}
+
+		fmt.Printf("/api/v1/trips/%d\n", id)
+
+		var setClauses []string
+		var values []interface{}
+
+		for key, value := range updateFields {
+			if key == "IsActive" {
+				setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
+				var boolValue bool
+				if value.(bool) {
+					boolValue = true
+				} else {
+					boolValue = false
+				}
+				values = append(values, boolValue)
+			} else {
+				setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
+				values = append(values, value)
+			}
+		}
+
+		query := fmt.Sprintf(`
+			UPDATE Trips
+			SET %s
+			WHERE TripID = ?;
+		`, strings.Join(setClauses, ", "))
+
+		values = append(values, id)
+		rows, err := db.Query(query, values...)
+		if err != nil {
+			panic(err.Error())
+		}
+		defer rows.Close()
+		fmt.Printf("Trip with id %d updated\n", id)
+		fmt.Fprintf(w, "Trip data updated successfully\n")
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		fmt.Fprint(w, "Error")
