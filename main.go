@@ -75,7 +75,8 @@ func main() {
 	router.HandleFunc("/api/v1/trips", trips).Methods(http.MethodGet)
 	router.HandleFunc("/api/v1/trips/{id}/{userid}", trips).Methods(http.MethodPut, http.MethodPost)
 	router.HandleFunc("/api/v1/myEnrolments/{id}", myEnrolments).Methods(http.MethodGet)
-	router.HandleFunc("/api/v1/publishTrip", publishTrip).Methods(http.MethodGet, http.MethodPut)
+	router.HandleFunc("/api/v1/publishTrip", publishTrip).Methods(http.MethodPost)
+	router.HandleFunc("/api/v1/publishTrip/{id}", publishTrip).Methods(http.MethodPut)
 	fmt.Println("Listening at port 5000")
 	log.Fatal(http.ListenAndServe(":5000", router))
 }
@@ -314,7 +315,7 @@ func trips(w http.ResponseWriter, r *http.Request) {
 		}
 		id, _ := strconv.Atoi(params["id"])
 		userid, _ := strconv.Atoi(params["userid"])
-		fmt.Println(id, userid)
+
 		var updateFields map[string]interface{}
 		decoder := json.NewDecoder(r.Body)
 		if err := decoder.Decode(&updateFields); err != nil {
@@ -425,8 +426,88 @@ func myEnrolments(w http.ResponseWriter, r *http.Request) {
 
 func publishTrip(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
-	case http.MethodGet:
+	case http.MethodPost:
+		decoder := json.NewDecoder(r.Body)
+		var trip Trips
+		err := decoder.Decode(&trip)
+		if err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if trip.OwnerUserID <= 0 || trip.PickupLocation == "" || trip.StartTravelTime == "" || trip.DestinationAddress == "" || trip.AvailableSeats <= 0 {
+			fmt.Println("Invalid params")
+			http.Error(w, "Invalid parameters", http.StatusBadRequest)
+			return
+		}
+
+		fmt.Println("/api/v1/publishTrip")
+
+		result, err := db.Exec("INSERT INTO Trips (OwnerUserID, PickupLocation, StartTravelTime, DestinationAddress, AvailableSeats) VALUES (?, ?, ?, ?, ?)",
+			trip.OwnerUserID, trip.PickupLocation, trip.StartTravelTime, trip.DestinationAddress, trip.AvailableSeats)
+		if err != nil {
+			panic(err.Error())
+		}
+
+		id, err := result.LastInsertId()
+		if err != nil {
+			panic(err.Error())
+		}
+
+		fmt.Println("Trip created with ID:", id)
+		fmt.Fprintf(w, "Trip created with ID: %d", id)
 	case http.MethodPut:
+		params := mux.Vars(r)
+		if _, ok := params["id"]; !ok {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "No ID")
+			return
+		}
+		id, _ := strconv.Atoi(params["id"])
+		var updateFields map[string]interface{}
+		decoder := json.NewDecoder(r.Body)
+		if err := decoder.Decode(&updateFields); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "Invalid request body")
+			return
+		}
+
+		fmt.Printf("/api/v1/publishTrip/%d", id)
+
+		var setClauses []string
+		var values []interface{}
+
+		for key, value := range updateFields {
+			if key == "IsActive" {
+				setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
+				var boolValue bool
+				if value.(bool) {
+					boolValue = true
+				} else {
+					boolValue = false
+				}
+				values = append(values, boolValue)
+			} else {
+				setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
+				values = append(values, value)
+			}
+		}
+
+		query := fmt.Sprintf(`
+			UPDATE Trips
+			SET %s
+			WHERE TripID = ?;
+		`, strings.Join(setClauses, ", "))
+
+		values = append(values, id)
+		rows, err := db.Query(query, values...)
+		if err != nil {
+			panic(err.Error())
+		}
+		defer rows.Close()
+
+		fmt.Printf("Trip with id %d updated\n", id)
+		fmt.Fprintf(w, "Trip data updated successfully\n")
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		fmt.Fprint(w, "Error")
