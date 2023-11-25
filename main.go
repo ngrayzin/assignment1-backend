@@ -356,8 +356,21 @@ func trips(w http.ResponseWriter, r *http.Request) {
 			panic(err.Error())
 		}
 		defer rows.Close()
+
+		result, err := db.Exec("INSERT INTO TripEnrollment (TripID, PassengerUserID) VALUES (?, ?)", id, userid)
+		if err != nil {
+			panic(err.Error())
+		}
+
+		lastInsertID, err := result.LastInsertId()
+		if err != nil {
+			panic(err.Error())
+		}
+
 		fmt.Printf("Trip with id %d updated\n", id)
 		fmt.Fprintf(w, "Trip data updated successfully\n")
+		fmt.Printf("Enrollment with id %d completed for user with id %d\n", lastInsertID, userid)
+		fmt.Fprintf(w, "Enrollment success\n")
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		fmt.Fprint(w, "Error")
@@ -365,9 +378,48 @@ func trips(w http.ResponseWriter, r *http.Request) {
 }
 
 func myEnrolments(w http.ResponseWriter, r *http.Request) {
-	querystringmap := r.URL.Query()
-	userId := querystringmap["userId"]
-	fmt.Println(userId)
+	type TripEnrollmentData struct {
+		Email              string         `json:"email"`
+		FirstName          string         `json:"firstName"`
+		LastName           string         `json:"lastName"`
+		MobileNumber       string         `json:"mobileNumber"`
+		PickupLocation     string         `json:"pickupLocation"`
+		AltPickupLocation  sql.NullString `json:"altPickupLocation"`
+		StartTravelTime    string         `json:"startTravelTime"`
+		DestinationAddress string         `json:"destinationAddress"`
+		CreatedAt          string         `json:"createdAt"`
+	}
+
+	params := mux.Vars(r)
+	if _, ok := params["id"]; !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "No ID")
+		return
+	}
+
+	id, _ := strconv.Atoi(params["id"])
+	fmt.Printf("/api/v1/myEnrolments/%d\n", id)
+	results, err := db.Query("SELECT u.Email, u.FirstName, u.Lastname, u.MobileNumber, t.PickupLocation,t.AltPickupLocation, t.StartTravelTime, t.DestinationAddress, t.CreatedAt FROM ((Trips t INNER JOIN TripEnrollments te ON t.TripID = te.TripID) INNER JOIN Users u ON t.OwnerUserID = u.UserID) WHERE PassengerUserID = ?;", id)
+	if err != nil {
+		panic(err.Error())
+	}
+	defer results.Close()
+	var enrollments []TripEnrollmentData
+	for results.Next() {
+		var e TripEnrollmentData
+		err = results.Scan(&e.Email, &e.FirstName, &e.LastName, &e.MobileNumber, &e.PickupLocation, &e.AltPickupLocation, &e.StartTravelTime, &e.DestinationAddress, &e.CreatedAt)
+		if err != nil {
+			panic(err.Error())
+		}
+		enrollments = append(enrollments, e)
+	}
+	enrollmentsJSON, err := json.Marshal(trips)
+	if err != nil {
+		panic(err.Error())
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(enrollmentsJSON)
 
 }
 
