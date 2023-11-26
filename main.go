@@ -326,6 +326,25 @@ func trips(w http.ResponseWriter, r *http.Request) {
 
 		fmt.Printf("/api/v1/trips/%d\n", id)
 
+		result, err := db.Exec("INSERT INTO TripEnrollments (TripID, PassengerUserID) VALUES (?, ?)", id, userid)
+		if err != nil {
+			me, ok := err.(*mysql.MySQLError)
+			if !ok {
+				panic(err.Error())
+			}
+			if me.Number == 1062 {
+				fmt.Println("Already have this enrolment")
+				fmt.Fprintf(w, "Duplicate\n")
+				w.WriteHeader(http.StatusConflict)
+				return
+			}
+		}
+
+		lastInsertID, err := result.LastInsertId()
+		if err != nil {
+			panic(err.Error())
+		}
+
 		var setClauses []string
 		var values []interface{}
 
@@ -357,16 +376,6 @@ func trips(w http.ResponseWriter, r *http.Request) {
 			panic(err.Error())
 		}
 		defer rows.Close()
-
-		result, err := db.Exec("INSERT INTO TripEnrollment (TripID, PassengerUserID) VALUES (?, ?)", id, userid)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		lastInsertID, err := result.LastInsertId()
-		if err != nil {
-			panic(err.Error())
-		}
 
 		fmt.Printf("Trip with id %d updated\n", id)
 		fmt.Fprintf(w, "Trip data updated successfully\n")
@@ -414,14 +423,13 @@ func myEnrolments(w http.ResponseWriter, r *http.Request) {
 		}
 		enrollments = append(enrollments, e)
 	}
-	enrollmentsJSON, err := json.Marshal(trips)
+	enrollmentsJSON, err := json.Marshal(enrollments)
 	if err != nil {
 		panic(err.Error())
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(enrollmentsJSON)
-
 }
 
 func publishTrip(w http.ResponseWriter, r *http.Request) {
