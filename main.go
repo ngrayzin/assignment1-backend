@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 )
 
@@ -65,6 +66,9 @@ var cfg = mysql.Config{
 }
 
 func main() {
+	allowOrigins := handlers.AllowedOrigins([]string{"*"})
+	allowMethod := handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"})
+	allowHeaders := handlers.AllowedHeaders([]string{"X-Requested-With", "Content-Type"})
 	db, _ = sql.Open("mysql", cfg.FormatDSN())
 	defer db.Close()
 
@@ -77,8 +81,9 @@ func main() {
 	router.HandleFunc("/api/v1/myEnrolments/{id}", myEnrolments).Methods(http.MethodGet)
 	router.HandleFunc("/api/v1/publishTrip", publishTrip).Methods(http.MethodPost)
 	router.HandleFunc("/api/v1/publishTrip/{id}", publishTrip).Methods(http.MethodPut)
+
 	fmt.Println("Listening at port 5000")
-	log.Fatal(http.ListenAndServe(":5000", router))
+	log.Fatal(http.ListenAndServe(":5000", handlers.CORS(allowHeaders, allowMethod, allowOrigins)(router)))
 }
 
 func login(w http.ResponseWriter, r *http.Request) {
