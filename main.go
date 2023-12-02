@@ -109,6 +109,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("Logged in :D")
 		w.Write(userJSON)
 	} else {
+		w.WriteHeader(http.StatusForbidden)
 		fmt.Println("Invalid login credentials")
 		fmt.Fprintf(w, "Invalid login credentials")
 	}
@@ -151,6 +152,7 @@ func signup(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("User created with ID:", id)
 	fmt.Fprintf(w, "User created with ID: %d", id)
+	w.WriteHeader(http.StatusOK)
 }
 
 func userProfile(w http.ResponseWriter, r *http.Request) {
@@ -233,6 +235,7 @@ func userProfile(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		fmt.Printf("User with id %d updated\n", id)
 		fmt.Fprintf(w, "User data updated successfully\n")
+		w.WriteHeader(http.StatusOK)
 	case http.MethodDelete:
 		results, err := db.Exec("DELETE FROM Users WHERE UserID = ? AND AccountCreationDate < DATE_SUB(NOW(),INTERVAL 1 YEAR);", id)
 		if err != nil {
@@ -245,7 +248,7 @@ func userProfile(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if RowsEffected > 0 {
-			w.WriteHeader(http.StatusAccepted)
+			w.WriteHeader(http.StatusOK)
 			fmt.Printf("User with id %d deleted\n", id)
 			fmt.Fprintf(w, "deleted user with id %d\n", id)
 		} else {
