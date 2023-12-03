@@ -142,7 +142,15 @@ func signup(w http.ResponseWriter, r *http.Request) {
 	result, err := db.Exec("INSERT INTO Users (Email, Password, FirstName, LastName, MobileNumber) VALUES (?, ?, ?, ?, ?)",
 		user.Email, user.Pwd, user.FirstName, user.LastName, user.Number)
 	if err != nil {
-		panic(err.Error())
+		me, ok := err.(*mysql.MySQLError)
+		if !ok {
+			panic(err.Error())
+		}
+		if me.Number == 1062 {
+			w.WriteHeader(http.StatusConflict)
+			fmt.Println("Email taken")
+			return
+		}
 	}
 
 	id, err := result.LastInsertId()
