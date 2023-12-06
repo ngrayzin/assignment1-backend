@@ -174,14 +174,14 @@ func userProfile(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		fmt.Printf("/api/v1/userProfile/%d\n", id)
-		results, err := db.Query("SELECT UserID, Email, FirstName, LastName, MobileNumber, DriverLicenseNumber, CarPlateNumber FROM Users WHERE UserID = ?;", id)
+		results, err := db.Query("SELECT UserID, Email, FirstName, LastName, MobileNumber, IsCarOwner, DriverLicenseNumber, CarPlateNumber FROM Users WHERE UserID = ?;", id)
 		if err != nil {
 			panic(err.Error())
 		}
 		defer results.Close()
 		user := User{}
 		for results.Next() {
-			err = results.Scan(&user.UserID, &user.Email, &user.FirstName, &user.LastName, &user.Number, &user.DriverLicenseNumber, &user.CarPlateNumber)
+			err = results.Scan(&user.UserID, &user.Email, &user.FirstName, &user.LastName, &user.Number, &user.IsCarOwner, &user.DriverLicenseNumber, &user.CarPlateNumber)
 			if err != nil {
 				panic(err.Error())
 			}
@@ -208,19 +208,14 @@ func userProfile(w http.ResponseWriter, r *http.Request) {
 		var values []interface{}
 
 		for key, value := range updateFields {
-			if key == "IsCarOwner" {
-				setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
-				// Check if the value is a string representation of a boolean
-				if strValue, ok := value.(string); ok {
-					// Convert string representation to boolean
-					boolValue, err := strconv.ParseBool(strValue)
-					if err != nil {
-						boolValue = false // Default value set to false
-					}
-					values = append(values, boolValue)
-				} else if boolValue, ok := value.(bool); ok {
+			if key == "isCarOwner" {
+				// Check if the value is a boolean
+				if boolValue, ok := value.(bool); ok {
+					setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
 					values = append(values, boolValue)
 				} else {
+					// If not a boolean, treat it as any other field
+					setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
 					values = append(values, value)
 				}
 			} else {
@@ -236,6 +231,8 @@ func userProfile(w http.ResponseWriter, r *http.Request) {
 		`, strings.Join(setClauses, ", "))
 
 		values = append(values, id)
+		fmt.Println(query)
+		fmt.Println(values)
 		rows, err := db.Query(query, values...)
 		if err != nil {
 			panic(err.Error())
