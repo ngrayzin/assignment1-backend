@@ -242,26 +242,46 @@ func userProfile(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "User data updated successfully\n")
 		w.WriteHeader(http.StatusOK)
 	case http.MethodDelete:
-		results, err := db.Exec("DELETE FROM Users WHERE UserID = ? AND AccountCreationDate < DATE_SUB(NOW(),INTERVAL 1 YEAR);", id)
+		//check for any existing trips that are not done
+		checkForExistingTrip, err := db.Query("SELECT t.isStarted, t.isCancelled, t.TripEndTime FROM Trips t INNER JOIN TripEnrollments te ON t.TripID = te.TripID WHERE te.PassengerUserID = ? AND (t.isStarted = false AND t.isCancelled = false AND t.TripEndTime IS NULL) OR (t.isStarted = true AND t.TripEndTime IS NULL);", id)
 		if err != nil {
 			panic(err.Error())
 		}
+		defer checkForExistingTrip.Close()
 
-		RowsEffected, err := results.RowsAffected()
-		if err != nil {
-			panic(err.Error())
+		existTrips := false
+		for checkForExistingTrip.Next() {
+			existTrips = true
+			break
 		}
 
-		if RowsEffected > 0 {
-			w.WriteHeader(http.StatusOK)
-			fmt.Printf("User with id %d deleted\n", id)
-			fmt.Fprintf(w, "deleted user with id %d\n", id)
+		if existTrips {
+			fmt.Println("You have uncompleted trips, please complete them")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "You have uncompleted trips, please complete them\n")
+			return
 		} else {
-			w.WriteHeader(http.StatusConflict)
-			fmt.Println("Account cannot be deleted (1yr retention policy)")
-			fmt.Fprintln(w, "Account cannot be deleted (1yr retention policy)")
-		}
+			fmt.Printf("/api/v1/userProfile/%d\n", id)
+			results, err := db.Exec("DELETE FROM Users WHERE UserID = ? AND AccountCreationDate < DATE_SUB(NOW(),INTERVAL 1 YEAR);", id)
+			if err != nil {
+				panic(err.Error())
+			}
 
+			RowsEffected, err := results.RowsAffected()
+			if err != nil {
+				panic(err.Error())
+			}
+
+			if RowsEffected > 0 {
+				w.WriteHeader(http.StatusOK)
+				fmt.Printf("User with id %d deleted\n", id)
+				fmt.Fprintf(w, "deleted user with id %d\n", id)
+			} else {
+				w.WriteHeader(http.StatusConflict)
+				fmt.Println("Account cannot be deleted (1yr retention policy)")
+				fmt.Fprintln(w, "Account cannot be deleted (1yr retention policy)")
+			}
+		}
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		fmt.Fprint(w, "Error")
