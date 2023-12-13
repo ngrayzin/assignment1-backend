@@ -72,6 +72,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 	err := decoder.Decode(&loginRequest)
 	if err != nil {
 		// Handle JSON decoding error
+		return
 	}
 
 	email := loginRequest.Email
