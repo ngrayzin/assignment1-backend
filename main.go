@@ -204,64 +204,45 @@ func userProfile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		checkForExistingTrip, err := db.Query("SELECT t.isCancelled, t.isStarted, t.TripEndTime FROM Trips t INNER JOIN TripEnrollments te ON t.TripID =  te.TripID WHERE te.PassengerUserID = ? AND TripEndTime IS NULL AND isCancelled = false;", id)
-		if err != nil {
-			panic(err.Error())
-		}
-		defer checkForExistingTrip.Close()
+		fmt.Printf("/api/v1/userProfile/%d\n", id)
 
-		existTrips := false
+		var setClauses []string
+		var values []interface{}
 
-		for checkForExistingTrip.Next() {
-			existTrips = true
-			break
-		}
-
-		if existTrips {
-			fmt.Println("You have uncompleted trips, please complete them")
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintf(w, "You have uncompleted trips, please complete them\n")
-			return
-		} else {
-			fmt.Printf("/api/v1/userProfile/%d\n", id)
-
-			var setClauses []string
-			var values []interface{}
-
-			for key, value := range updateFields {
-				if key == "isCarOwner" || key == "isDeleted" {
-					// Check if the value is a boolean
-					if boolValue, ok := value.(bool); ok {
-						setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
-						values = append(values, boolValue)
-					} else {
-						// If not a boolean, treat it as any other field
-						setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
-						values = append(values, value)
-					}
+		for key, value := range updateFields {
+			if key == "isCarOwner" {
+				// Check if the value is a boolean
+				if boolValue, ok := value.(bool); ok {
+					setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
+					values = append(values, boolValue)
 				} else {
+					// If not a boolean, treat it as any other field
 					setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
 					values = append(values, value)
 				}
+			} else {
+				setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
+				values = append(values, value)
 			}
-
-			query := fmt.Sprintf(`
-				UPDATE Users
-				SET %s
-				WHERE UserID = ?;
-			`, strings.Join(setClauses, ", "))
-
-			values = append(values, id)
-			rows, err := db.Query(query, values...)
-			if err != nil {
-				panic(err.Error())
-			}
-			defer rows.Close()
-			fmt.Printf("User with id %d updated\n", id)
-			fmt.Fprintf(w, "User data updated successfully\n")
-			w.WriteHeader(http.StatusOK)
-
 		}
+
+		query := fmt.Sprintf(`
+			UPDATE Users
+			SET %s
+			WHERE UserID = ?;
+		`, strings.Join(setClauses, ", "))
+
+		values = append(values, id)
+		rows, err := db.Query(query, values...)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			panic(err.Error())
+		}
+		defer rows.Close()
+		fmt.Printf("User with id %d updated\n", id)
+		fmt.Fprintf(w, "User data updated successfully\n")
+		w.WriteHeader(http.StatusOK)
+
 	case http.MethodDelete:
 		//check for any existing trips that are not done
 		checkForExistingTrip, err := db.Query("SELECT t.isStarted, t.isCancelled, t.TripEndTime FROM Trips t INNER JOIN TripEnrollments te ON t.TripID = te.TripID WHERE te.PassengerUserID = ? AND (t.isStarted = false AND t.isCancelled = false AND t.TripEndTime IS NULL) OR (t.isStarted = true AND t.TripEndTime IS NULL);", id)
