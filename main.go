@@ -31,6 +31,7 @@ type User struct {
 	DriverLicenseNumber sql.NullString `json:"driverLicenseNumber"`
 	Password            string         `json:"password"`
 	AccountCreation     string         `json:"accountCreationDate"`
+	IsDeleted           bool           `json:"isDeleted"`
 	LastUpdated         string         `json:"lastUpdated"`
 }
 
@@ -83,7 +84,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("/api/v1/login")
 
-	results, err := db.Query("SELECT * FROM Users WHERE Email = ? AND Password = ?", email, pwd)
+	results, err := db.Query("SELECT * FROM Users WHERE Email = ? AND Password = ? AND IsDeleted = false;", email, pwd)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -93,7 +94,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 	userFound := false
 	for results.Next() {
 		userFound = true
-		err = results.Scan(&user.UserID, &user.Email, &user.Password, &user.FirstName, &user.LastName, &user.Number, &user.IsCarOwner, &user.DriverLicenseNumber, &user.CarPlateNumber, &user.AccountCreation, &user.LastUpdated)
+		err = results.Scan(&user.UserID, &user.Email, &user.Password, &user.FirstName, &user.LastName, &user.Number, &user.IsCarOwner, &user.DriverLicenseNumber, &user.CarPlateNumber, &user.AccountCreation, &user.IsDeleted, &user.LastUpdated)
 		if err != nil {
 			panic(err.Error())
 		}
@@ -208,7 +209,7 @@ func userProfile(w http.ResponseWriter, r *http.Request) {
 		var values []interface{}
 
 		for key, value := range updateFields {
-			if key == "isCarOwner" {
+			if key == "isCarOwner" || key == "isDeleted" {
 				// Check if the value is a boolean
 				if boolValue, ok := value.(bool); ok {
 					setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
@@ -249,8 +250,20 @@ func userProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		defer checkForExistingTrip.Close()
 
+		checkForCarOwnerExistingTrips, err := db.Query("SELECT * FROM Trips WHERE OwnerUserID = ? AND TripEndTime IS NULL AND IsCancelled = false;", id)
+		if err != nil {
+			panic(err.Error())
+		}
+		defer checkForCarOwnerExistingTrips.Close()
+
 		existTrips := false
+
 		for checkForExistingTrip.Next() {
+			existTrips = true
+			break
+		}
+
+		for checkForCarOwnerExistingTrips.Next() {
 			existTrips = true
 			break
 		}
@@ -262,7 +275,8 @@ func userProfile(w http.ResponseWriter, r *http.Request) {
 			return
 		} else {
 			fmt.Printf("/api/v1/userProfile/%d\n", id)
-			results, err := db.Exec("DELETE FROM Users WHERE UserID = ? AND AccountCreationDate < DATE_SUB(NOW(),INTERVAL 1 YEAR);", id)
+
+			results, err := db.Exec("UPDATE Users SET IsDeleted = true WHERE UserID = ? AND AccountCreationDate < DATE_SUB(NOW(),INTERVAL 1 YEAR);", id)
 			if err != nil {
 				panic(err.Error())
 			}
